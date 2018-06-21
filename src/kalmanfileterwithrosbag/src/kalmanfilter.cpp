@@ -74,7 +74,7 @@ double encoder_coef = 2578.33;				//facteur de conversion donnée codeur -> angl
 double lr = 0.227*1.103;					//longueur entre les roues, track gauch
 double rr = 0.035;							//rayon des roues, the radius of the wheel
 double trackGauge = 0.227*1.103;
-double t_carreau = 0.30;					//taille des carreaux (bat. D : 0.1017, bat. E : 0.30)
+double t_carreau = 0.1017;					//taille des carreaux (bat. D : 0.1017, bat. E : 0.30)
 
 //sensor number and position definition
 double mys = 0.075;							//distance centre-capteur selon y, in robot fram
@@ -94,9 +94,16 @@ vector< double> dMaha_red1_dots;
 vector< double> dMaha_red2_dots;
 
  vector<double> dMaha_neighboor_red_dots1;
-  vector<double> dMaha_neighboor_red_dots2;
-   vector<double> dMaha_neighboor_red_dots3;
-    vector<double> dMaha_neighboor_red_dots4;
+ vector<double> dMaha_neighboor_red_dots2;
+ vector<double> dMaha_neighboor_red_dots3;
+ vector<double> dMaha_neighboor_red_dots4;
+ 
+vector<double> travel_distance;
+double last_travel_distance = 0;
+
+vector<double> thegema_x;
+vector<double> thegema_y;
+vector<double> thegema_theta;
 
 vector< int> dMaha_dots_index;
 
@@ -146,11 +153,13 @@ void evolutionModel()
         //        cout<<deltaq<<endl;
         
         U = jointToCartesian * deltaq;       //from localazation.pdf equation (5.19)
+        
         U1 = jointToCartesian * deltaq;
         X = EvolutionModelCore( X, U );  //prediction phase
-        X1 = EvolutionModelCore(X1,U1);  //pure odometry
-        
+        X1 = EvolutionModelCore(X1,U1);  //pure odometry   
     }
+    
+     
     //update the encoder
     left_encoder_prec  = Encoders[0];
     right_encoder_prec = Encoders[1];
@@ -205,11 +214,11 @@ int main(int argc, char **argv)
     jointToCartesian <<         rr/2,             rr/2,
                            rr/trackGauge,   -rr/trackGauge;
     //Pose of depart, modify it based on real trajectory
-    X << 0, 0, 45*PI/180;
-    X1 << 0, 0, 45*PI/180;
+    X << 0, 0, 0*PI/180;
+    X1 << 0, 0, 0*PI/180;
     
     //Incertitude sur la position initiale
-    P << pow(0.007,2), 0, 0,
+    P <<    pow(0.007,2), 0, 0,
             0, pow(0.007,2), 0,
             0, 0, pow(5*PI/180,2);
     
@@ -252,6 +261,10 @@ int main(int argc, char **argv)
         ros::spinOnce();
         //odometry
         evolutionModel();  
+        
+        last_travel_distance = U(0)*T + last_travel_distance;
+        travel_distance.push_back( last_travel_distance*10 );
+       
         odom_x.push_back(X1[0]);  //store the pure odometry 
         odom_y.push_back(X1[1]);
         
@@ -295,7 +308,7 @@ int main(int argc, char **argv)
             C_y << 0, 1, -m_sensor_position_filted[i][1]*sin(X[2]) + m_sensor_position_filted[i][0]*cos(X[2]);
             
             //Calculs des distances de Mahalanobis for x and y line
-            double delta_mesure_X = C_round_right_higher[0] - sensor_mesurements[i][0];      //Yk - Yk_hat
+            double delta_mesure_X = C_round[0] - sensor_mesurements[i][0];      //Yk - Yk_hat
             double dMaha_X = abs(delta_mesure_X)/sqrt((C_x*P*C_x.transpose())(0,0)+Qgamma);
            
             double delta_mesure_Y = C_round[1] - sensor_mesurements[i][1];  
@@ -391,6 +404,7 @@ int main(int argc, char **argv)
                 K = P*C_x.transpose()/((C_x*P*C_x.transpose())(0,0)+Qgamma);
                 X = X + K*delta_mesure_X;
                 P = (MatrixXd::Identity(3,3)-K*C_x)*P;
+               // travel_distance.push_back( last_travel_distance );
                 update_counter ++;
             }
             
@@ -401,8 +415,24 @@ int main(int argc, char **argv)
                 K = P*C_y.transpose()/((C_y*P*C_y.transpose())(0,0)+Qgamma);
                 X = X + K*delta_mesure_Y;
                 P = (MatrixXd::Identity(3,3)-K*C_y)*P;
+               // travel_distance.push_back( last_travel_distance );
                 update_counter ++;
             }
+            else if(dMaha_X < mahaThreshold && dMaha_Y < mahaThreshold)
+            {
+				ROS_INFO("X update");
+                K = P*C_x.transpose()/((C_x*P*C_x.transpose())(0,0)+Qgamma);
+                
+                X = X + K*delta_mesure_X;
+                P = (MatrixXd::Identity(3,3)-K*C_x)*P;
+
+                
+                ROS_INFO("Y update");
+                K = P*C_y.transpose()/((C_y*P*C_y.transpose())(0,0)+Qgamma);
+                X = X + K*delta_mesure_Y;
+                P = (MatrixXd::Identity(3,3)-K*C_y)*P;
+               // travel_distance.push_back( last_travel_distance );
+			}
             cout<<"update_counter:  "<<update_counter<<endl;
             
         }
@@ -425,13 +455,18 @@ int main(int argc, char **argv)
         variance.theta = P(2,2);
         publisher_variance.publish(variance);
         
+        thegema_x.push_back( sqrt(P(0,0)) );
+        thegema_y.push_back( sqrt(P(1,1)) );
+        thegema_theta.push_back( sqrt(P(2,2))*180/PI );
+        
+        
         /*plt::plot(filted_x,filted_y,"r-",odom_x,odom_y,"k-");
         plt::xlim(-1.5, 1.5);
         plt::ylim(-2.0, 2.5);
         plt::pause(0.01);*/
-          vector<double> w(dMaha_dots_index.size(), mahaThreshold);
           
-          /*plt::plot(dMaha_dots_index, dMaha_green_dots,"g*", dMaha_dots_index, dMaha_red1_dots,"r.",  dMaha_dots_index, dMaha_red2_dots,"r.", dMaha_dots_index, w,"r-",
+          /*vector<double> w(dMaha_dots_index.size(), mahaThreshold);
+          plt::plot(dMaha_dots_index, dMaha_green_dots,"g*", dMaha_dots_index, dMaha_red1_dots,"r.",  dMaha_dots_index, dMaha_red2_dots,"r.", dMaha_dots_index, w,"r-",
           dMaha_dots_index, dMaha_neighboor_red_dots1, "r.", dMaha_dots_index, dMaha_neighboor_red_dots2, "r.",
           dMaha_dots_index, dMaha_neighboor_red_dots3, "r.", dMaha_dots_index, dMaha_neighboor_red_dots4, "r.");
           plt::ylim(0, 160);
@@ -448,10 +483,57 @@ int main(int argc, char **argv)
     //    const char* filename = "/home/plot_test.png";
     //    plt::save(filename);*/
              
-      //  ROS_INFO("1");
+   /* plt::subplot(3,1,1);
+		plt::plot(travel_distance,thegema_x);
+		plt::pause(0.01);
+	plt::subplot(3,1,2);
+		plt::plot(travel_distance,thegema_y);
+		plt::pause(0.01);
+	plt::subplot(3,1,3);
+		plt::plot(travel_distance,thegema_theta);
+		plt::pause(0.01);*/
+		
         loop_rate.sleep();
     }
-       
+    
+         cout<<"size  "<<dMaha_dots_index.size()<<"  "<<thegema_x.size()<<endl;
+         plt::figure();
+		 plt::subplot(3,1,1);
+		 plt::plot(travel_distance, thegema_x);
+        //plt::xlim(0, 10);
+		 plt::ylabel("thegma_x");
+	
+		//plt::pause(0.01);
+	    plt::subplot(3,1,2);
+		plt::plot(travel_distance, thegema_y);
+		//plt::xlim(0, 10);
+		plt::ylabel("thegma_y");
+		//plt::pause(0.01);
+	    plt::subplot(3,1,3);
+		plt::plot(travel_distance, thegema_theta);
+		//plt::xlim(0, 10);
+		plt::ylabel("thegma_theta");
+		plt::xlabel("travel_distance");
+		
+		//plt::pause(0.01);
+		const char* filename1 = "/home/valentinohx/plot_thegema.svg";
+		plt::save(filename1);
+		
+		  plt::figure();
+		  vector<double> w(dMaha_dots_index.size(), mahaThreshold);
+          plt::plot(dMaha_dots_index, dMaha_green_dots,"g*", dMaha_dots_index, dMaha_red1_dots,"r.",  dMaha_dots_index, dMaha_red2_dots,"r.", dMaha_dots_index, w,"r-",
+          dMaha_dots_index, dMaha_neighboor_red_dots1, "r.", dMaha_dots_index, dMaha_neighboor_red_dots2, "r.",
+          dMaha_dots_index, dMaha_neighboor_red_dots3, "r.", dMaha_dots_index, dMaha_neighboor_red_dots4, "r.");
+          plt::ylim(0, 160);
+          plt::pause(0.01);
+          const char* filename2 = "/home/valentinohx/plot_dmaha.svg";
+		  plt::save(filename2);
+		
+		while(true)
+		{
+		}
+		
+   // for(int i = 0; i < 100000000000000 ; );     
       /* plt::plot(filted_x,filted_y,"r-",odom_x,odom_y,"k-");
        //plt::pause(0.01);
        for(int i = 0; i < 100000000000000 ; )*/
