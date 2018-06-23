@@ -1,0 +1,10 @@
+<launch>
+
+  <node pkg="rosbag" type="play" name="player"  args="--clock /home/xiao/ros_lab_ws/src/kalman_new/src/kalmanfileterwithrosbag/roscored_E/random_2.bag"/>
+
+
+  <node name="kalmanfilter_node" pkg="kalmanfileterwithrosbag" type="kalmanfilter_node" output="screen">
+  </node>
+
+
+</launch>
