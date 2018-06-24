@@ -38,12 +38,29 @@ using namespace std;
 using namespace Eigen;
 namespace plt = matplotlibcpp;
 
+
 const char *absolutepath = "/home/valentinohx/ros/src/kalmanfileterwithrosbag/";
 const char *folder = "plot_results_E/";
-const char *bagName = "twocircle_1";
-const char *comment = "_test";
+const char *bagName = "circle_1";
+const char *comment = "406";
 double tile_length = 0.30;					//tile size (bat. D : 0.1017, bat. E : 0.30)
 
+/* **********************************for filter tuning********************************* */
+//
+//P
+double initial_uncertainty_xy  =  0.007;    //0.007                 //Uncertainty about the initial position x y coordinates
+double initial_uncertainty_theta  =  5;     //5                //Uncertainty about the initial position
+//Qalpha
+double state_uncertainty_xy = 0.003;        //0.003                    //state noise, in m 
+double state_uncertainty_theta = 0.2;       //0.2                     //in degree
+
+//Qbeta
+double thegma_wheels = 0.00006;   // in m    //0.00006                  //input noise
+
+//Qgama
+double measurement_uncertainty = 0.005;      //0.005               //measurment uncertainty, in m
+/* **********************************for filter tuning******************************** */
+double initial_theta = 0; //in degrees 
 
 const double PI = 3.14159265359;
 
@@ -136,7 +153,7 @@ void evolutionModel()
     static int right_encoder_prec;
     //the first value of the encoder is abnormal, so we do not take it consideration
     //This modification imposes a pause at the beginning of the robot's tajectory in the command
-    if(ros::Time::now().toSec()-t0>0.5)
+    if(ros::Time::now().toSec()-t0> 0.4)
     {
         //Encoder increment variation variables
         int delta_left = Encoders[0]-left_encoder_prec;
@@ -193,6 +210,7 @@ void vitesseCallback(kobuki_msgs::SensorState encoder_state)
     Encoders[0] = encoder_state.left_encoder;
     Encoders[1] = encoder_state.right_encoder;
 }
+
 //-------------------------------------- MAIN FONCTION ------------------------------------------//
 int main(int argc, char **argv)
 {
@@ -214,26 +232,25 @@ int main(int argc, char **argv)
     jointToCartesian <<         rr/2,             rr/2,
             rr/trackGauge,   -rr/trackGauge;
     //Pose of depart, modify it based on real trajectory
-    X << 0, 0, 0*PI/180;
+    X << 0, 0, initial_theta*PI/180;
     X1 = X;
     
     //Uncertainty about the initial position
-    P <<    pow(0.007,2), 0, 0,
-            0, pow(0.007,2), 0,
-            0, 0, pow(5*PI/180,2);
+    P <<    pow(initial_uncertainty_xy,2), 0, 0,
+            0, pow(initial_uncertainty_xy,2), 0,
+            0, 0, pow(initial_uncertainty_theta*PI/180, 2);
     
     //Matrices of variance
-    Qalpha = MatrixXd(3,3);				//state noises
-    Qalpha <<  pow(0.003,2)*T, 0, 0,
-            0, pow(0.003,2)*T, 0,
-            0, 0, pow(0.2*PI/180,2)*T;
+    Qalpha = MatrixXd(3,3);  //state noises
+    Qalpha <<  pow(state_uncertainty_xy,2)*T, 0, 0,
+               0, pow(state_uncertainty_xy,2)*T, 0,
+               0, 0, pow(state_uncertainty_theta*PI/180,2)*T;
     
     Qbeta = MatrixXd(2,2);				//input noises
-    Qbeta << pow(0.00006,2), 0,
-            0, pow(0.00006,2);
+    Qbeta << pow(thegma_wheels,2), 0,
+              0, pow(thegma_wheels,2);
     
-    
-    Qgamma = pow(0.005,2)/12;			//measurment noises
+    Qgamma = pow(measurement_uncertainty,2)/12;			//measurment noises
     
     //Initialisation ROS
     ros::init(argc, argv, "conversion_capteur");
@@ -328,7 +345,7 @@ int main(int argc, char **argv)
             double dMaha_left_lower_Y = abs(delta_mesure_left_lower_Y)/sqrt((C_y*P*C_y.transpose())(0,0)+Qgamma);
             /* ******************************************************************************* */
             //vote the dots to plot
-            /* if( abs(delta_mesure_X) < 0.01 || abs(delta_mesure_Y) < 0.01 )      //when the error smaller than 0.01m vote it to be correct one
+             if( abs(delta_mesure_X) < 0.01 || abs(delta_mesure_Y) < 0.01 )      //when the error smaller than 0.01m vote it to be correct one
             {
                 if( abs(delta_mesure_X) < 0.01 && abs(delta_mesure_Y) < 0.01 )
                 {
@@ -399,7 +416,7 @@ int main(int argc, char **argv)
                 
                 dMaha_dots_index.push_back(index);
                 index = index +1;
-            }*/
+            }
             
             //Kalman wrt. horizantal line
             if (dMaha_X < mahaThreshold && dMaha_Y > mahaThreshold)
@@ -407,21 +424,6 @@ int main(int argc, char **argv)
                 K = P*C_x.transpose()/((C_x*P*C_x.transpose())(0,0)+Qgamma);
                 X = X + K*delta_mesure_X;
                 P = (MatrixXd::Identity(3,3)-K*C_x)*P;
-                
-                
-                dMaha_green1_dots.push_back(dMaha_X);
-                dMaha_green2_dots.push_back(-10);
-                
-                dMaha_red1_dots.push_back(-10); // y
-                dMaha_red2_dots.push_back(-10);
-                
-                dMaha_neighboor_red_dots1.push_back(dMaha_right_higher_X);
-                dMaha_neighboor_red_dots2.push_back(-10);
-                dMaha_neighboor_red_dots3.push_back(dMaha_left_lower_X);
-                dMaha_neighboor_red_dots4.push_back(-10);
-                
-                dMaha_dots_index.push_back(index);
-                index = index + 1;
             }
             
             //Kalman wrt. vertical line
@@ -429,22 +431,7 @@ int main(int argc, char **argv)
             {
                 K = P*C_y.transpose()/((C_y*P*C_y.transpose())(0,0)+Qgamma);
                 X = X + K*delta_mesure_Y;
-                P = (MatrixXd::Identity(3,3)-K*C_y)*P;
-                
-                dMaha_green1_dots.push_back(dMaha_Y);
-                dMaha_green2_dots.push_back(-10);
-                
-                dMaha_red1_dots.push_back(-10);
-                dMaha_red2_dots.push_back(-10);
-                
-                dMaha_neighboor_red_dots1.push_back(-10);
-                dMaha_neighboor_red_dots2.push_back(dMaha_right_higher_Y);
-                dMaha_neighboor_red_dots3.push_back(-10);
-                dMaha_neighboor_red_dots4.push_back(dMaha_left_lower_Y);
-                
-                dMaha_dots_index.push_back(index);
-                index = index +1 ;
-                
+                P = (MatrixXd::Identity(3,3)-K*C_y)*P; 
             }
             //for detect the corner
             else if(dMaha_X < mahaThreshold && dMaha_Y < mahaThreshold)
@@ -457,7 +444,7 @@ int main(int argc, char **argv)
                 X = X + K*delta_mesure_Y;
                 P = (MatrixXd::Identity(3,3)-K*C_y)*P;
                 
-                dMaha_green1_dots.push_back(dMaha_X);
+                /*dMaha_green1_dots.push_back(dMaha_X);
                 dMaha_green2_dots.push_back(dMaha_Y);
                 
                 dMaha_red1_dots.push_back(-10);     //use -10 to take up the index(useless value)
@@ -469,10 +456,10 @@ int main(int argc, char **argv)
                 dMaha_neighboor_red_dots4.push_back(dMaha_left_lower_Y);
                 
                 dMaha_dots_index.push_back(index);
-                index = index + 1;      //calculate index to plot
+                index = index + 1;      //calculate index to plot*/
             }
             
-            else
+            /*else
             {
                 dMaha_red1_dots.push_back(-10);
                 dMaha_red2_dots.push_back(-10);
@@ -487,7 +474,7 @@ int main(int argc, char **argv)
                 
                 dMaha_dots_index.push_back(index);
                 index = index +1;
-            }
+            }*/
         }
         
         measurement_equation.clear();		//empty the vector
