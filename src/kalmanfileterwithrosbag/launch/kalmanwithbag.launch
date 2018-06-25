@@ -1,7 +1,6 @@
 <launch>
 
-  <node pkg="rosbag" type="play" name="player"  args="--clock /home/valentinohx/ros/src/kalmanfileterwithrosbag/roscored_E/circle_1.bag"/>
-
+  <node pkg="rosbag" type="play" name="player"  args="--clock /home/valentinohx/slineD.bag"/>
 
   <node name="kalmanfilter_node" pkg="kalmanfileterwithrosbag" type="kalmanfilter_node" output="screen">
   </node>

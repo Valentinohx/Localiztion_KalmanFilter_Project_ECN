@@ -40,27 +40,31 @@ namespace plt = matplotlibcpp;
 
 
 const char *absolutepath = "/home/valentinohx/ros/src/kalmanfileterwithrosbag/";
-const char *folder = "plot_results_E/";
-const char *bagName = "circle_1";
-const char *comment = "406";
-double tile_length = 0.30;					//tile size (bat. D : 0.1017, bat. E : 0.30)
+const char *folder = "plot_results_D/";
+const char *bagName = "slineD";
+const char *comment = "0d1_3062";
+
+const char* filename0 = "/home/valentinohx/ros/src/kalmanfileterwithrosbag/plot_results_D/plot_slineD_long1_state.svg";
+const char* filename4 = "/home/valentinohx/ros/src/kalmanfileterwithrosbag/plot_results_D/plot_slineD_long1_sensors_raw_state.svg";
+
+double tile_length = 0.1017;		//tile size (bat. D : 0.1017, bat. E : 0.30)
 
 /* **********************************for filter tuning********************************* */
 //
 //P
-double initial_uncertainty_xy  =  0.007;    //0.007                 //Uncertainty about the initial position x y coordinates
+double initial_uncertainty_xy  =  0.005;    //0.007                 //Uncertainty about the initial position x y coordinates
 double initial_uncertainty_theta  =  5;     //5                //Uncertainty about the initial position
 //Qalpha
 double state_uncertainty_xy = 0.003;        //0.003                    //state noise, in m 
 double state_uncertainty_theta = 0.2;       //0.2                     //in degree
 
 //Qbeta
-double thegma_wheels = 0.00006;   // in m    //0.00006                  //input noise
+double thegma_wheels = 0.00006;   // in m    //0.00006    //0.00005              //input noise
 
 //Qgama
 double measurement_uncertainty = 0.005;      //0.005               //measurment uncertainty, in m
 /* **********************************for filter tuning******************************** */
-double initial_theta = 0; //in degrees 
+double initial_theta =0; //in degrees 
 
 const double PI = 3.14159265359;
 
@@ -131,6 +135,11 @@ vector<double> dMaha_neighboor_red_dots4;
 vector<double> travel_distance;
 double last_travel_distance = 0;
 
+vector<double> IR_travel_distance;
+double IR_last_travel_distance = 0;
+vector<int> IR_sensor_state;
+vector<int> IR_raw_state;
+
 vector<double> thegema_x;
 vector<double> thegema_y;
 vector<double> thegema_theta;
@@ -153,7 +162,7 @@ void evolutionModel()
     static int right_encoder_prec;
     //the first value of the encoder is abnormal, so we do not take it consideration
     //This modification imposes a pause at the beginning of the robot's tajectory in the command
-    if(ros::Time::now().toSec()-t0> 0.4)
+    if(ros::Time::now().toSec()-t0> 1.0) //0.4
     {
         //Encoder increment variation variables
         int delta_left = Encoders[0]-left_encoder_prec;
@@ -190,6 +199,12 @@ void evolutionModel()
 // Measurement from the sensor
 void mesureCallback(std_msgs::Int8MultiArray IR_state)
 {
+	IR_last_travel_distance = U(0) + IR_last_travel_distance;
+    IR_travel_distance.push_back( IR_last_travel_distance );
+    IR_travel_distance.push_back(IR_last_travel_distance+0.000001);
+    IR_sensor_state.push_back(IR_state.data[0]);  //left sensor
+    IR_sensor_state.push_back(-IR_state.data[1]);  //right sensor
+	
     VectorXd g(2);
     for(int i = 0; i < sensor_number; i++ )
     {
@@ -203,12 +218,23 @@ void mesureCallback(std_msgs::Int8MultiArray IR_state)
             measurement_equation.push_back(g);
         }
     }
+    plt::plot(IR_travel_distance,IR_sensor_state);
+    plt::pause(0.01);
+    plt::save(filename0);
 }
 // Update the raw data of the encoders
 void vitesseCallback(kobuki_msgs::SensorState encoder_state)
 {
+	
     Encoders[0] = encoder_state.left_encoder;
     Encoders[1] = encoder_state.right_encoder;
+    
+    IR_raw_state.push_back(-encoder_state.bottom[0]); //right sensor
+    IR_raw_state.push_back(encoder_state.bottom[2]);  //left sensor
+    
+    
+    
+ 
 }
 
 //-------------------------------------- MAIN FONCTION ------------------------------------------//
@@ -569,5 +595,9 @@ int main(int argc, char **argv)
     strcat(filename3,comment);
     strcat(filename3,extention);
     plt::save(filename3);
+    
+    plt::figure();
+    plt::plot(IR_raw_state);
+    plt::save(filename4);
     return 0;
 }
